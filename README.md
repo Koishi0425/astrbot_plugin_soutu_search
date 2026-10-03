@@ -103,11 +103,27 @@
 | `whitelist` | list | `[]` | 白名单：允许使用本插件的会话/群（**空列表 = 全部拒绝**） |
 | `blacklist` | list | `[]` | 黑名单：禁止使用本插件的会话/群（**空列表 = 不限制**） |
 | `extra_allowed_roots` | list | `[]` | 额外允许读取的本地图片根目录（一般无需填写，仅应对 AstrBot 版本差异导致的临时目录变化） |
+| `suppress_llm_followup` | bool | `true` | **指令后是否抑制 LLM 联动（防抢答）**。默认开启：`搜本`/`搜图` 指令处理完即禁止 AstrBot 默认 LLM 请求链路并终止事件传播，避免 LLM 人格插件（如 AstrNa）额外回一段人话；关闭后插件只返回自身结果、不阻止其它插件/LLM 的后续响应 |
 
-> 共 **27** 项配置。命令前缀不在本插件配置中，而是跟随 AstrBot 全局 `wake_prefix`。
+> 共 **28** 项配置。命令前缀不在本插件配置中，而是跟随 AstrBot 全局 `wake_prefix`。
 > `saucenao_db_mask` 非法值（负数/非整数）回退 `96`（保守的 Pixiv 限定，**刻意不退回 `0`**，
 > 以免非法值被静默当成「搜全部」）；`saucenao_min_similarity` 越界回退 `50`；
 > `saucenao_hide` 不在 0-3 回退 `0`；`ascii2d_base_url` / `yandex_base_url` 为空回退官方站点。
+
+#### 指令联动抑制（0.6.3 新增）
+
+AstrBot 的 `filter.command` 命令 handler 返回结果后，事件仍可能处于「唤醒命令」状态，从而继续走
+**默认 LLM 请求链路**。若同时安装了 LLM 人格插件（如 AstrNa），用户发 `搜本`/`搜图` 指令时，除了
+本插件的搜索结果，还会额外触发一段 LLM 人话回复（典型如对 NSFW 图说「不接 / 自己去识图网站」）。
+
+插件因此默认做两件事（`suppress_llm_followup=true`）：
+
+- `event.should_call_llm(True)`：禁止 AstrBot 默认 LLM 请求链路（只拦默认 LLM，不影响插件内主动
+  `request_llm`）；
+- `event.stop_event()`：终止事件传播，阻止后续 handler（其它插件）抢答。
+
+两者均做防御性调用：老版本 AstrBot 或测试里的假事件没有对应方法时静默降级，不影响主流程。
+若你希望指令后仍允许 LLM 补充（少数场景），把 `suppress_llm_followup` 设为 `false` 即可。
 
 #### Yandex 来源质量分选（0.6.2 新增）
 

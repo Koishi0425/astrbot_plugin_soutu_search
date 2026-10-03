@@ -612,7 +612,7 @@ class TestNewConfig(unittest.TestCase):
 
     def test_schema_has_new_keys(self):
         schema = json.loads((PLUGIN_ROOT / "_conf_schema.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(schema), 27)  # [v0.6.1] + yandex_enable / yandex_base_url；+ yandex_max_per_domain
+        self.assertEqual(len(schema), 28)  # [v0.6.2] 27；+ suppress_llm_followup（0.6.3）
         self.assertEqual(schema["saucenao_enable"]["default"], True)
         self.assertEqual(schema["yandex_enable"]["default"], True)
         self.assertEqual(schema["yandex_base_url"]["default"], "https://yandex.ru")
@@ -620,8 +620,9 @@ class TestNewConfig(unittest.TestCase):
         self.assertEqual(schema["ascii2d_enable"]["default"], False)
         self.assertEqual(schema["ascii2d_base_url"]["default"], "https://ascii2d.net")
         self.assertEqual(schema["ascii2d_bovw"]["default"], False)
+        self.assertEqual(schema["suppress_llm_followup"]["default"], True)
         for key in ("saucenao_enable", "yandex_enable", "yandex_base_url", "yandex_max_per_domain",
-                    "ascii2d_enable", "ascii2d_base_url", "ascii2d_bovw"):
+                    "ascii2d_enable", "ascii2d_base_url", "ascii2d_bovw", "suppress_llm_followup"):
             self.assertIn("description", schema[key])
             self.assertIn("hint", schema[key])
 

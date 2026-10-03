@@ -380,6 +380,9 @@ class SoutuSearchPlugin(Star):
 
         # ---- 读取配置（全部带默认值，缺配置也能跑） ----
         self.nsfw_send_image = _to_bool(cfg.get("nsfw_send_image"), False)
+        # 指令被插件接管后，是否抑制 AstrBot 默认 LLM 请求链路与后续插件 handler（默认开启）。
+        # 用于规避「发搜本/搜图指令时，LLM 人格插件（如 AstrNa）又额外回一段人话」的联动抢答。
+        self.suppress_llm_followup = _to_bool(cfg.get("suppress_llm_followup"), True)
 
         self.search_factor = _to_str(cfg.get("search_factor"), "1.2")
         if self.search_factor not in ("1.2", "1.4"):
@@ -708,6 +711,35 @@ class SoutuSearchPlugin(Star):
                 logger.warning("[搜图] 关闭 %s 会话失败: %s", name, exc)
 
     # ------------------------------------------------------------------ #
+    # 指令联动抑制（默认开启，可配置关闭）
+    # ------------------------------------------------------------------ #
+    def _suppress_followup(self, event: AstrMessageEvent) -> None:
+        """指令已被本插件接管：阻止默认 LLM 请求链路 + 后续插件 handler 抢答。
+
+        背景：AstrBot 在「命令 handler 返回结果后」，若事件仍处于「唤醒命令」状态且未
+        显式禁止，会继续走「默认 LLM 请求链路」，导致安装了 LLM 人格插件（如 AstrNa）
+        时，用户发「搜本/搜图」指令会额外触发一段 LLM 人话回复（例如对 NSFW 图说
+        「不接 / 自己去识图网站」）。本方法通过两个官方 API 关闭这一联动：
+
+        1. ``event.should_call_llm(True)`` —— 禁止 AstrBot 默认 LLM 请求链路（精准解：
+           只拦默认 LLM，不影响插件内主动 request_llm）。⚠️ 该方法命名反直觉：传
+           ``True`` 表示「禁止」。源码里 ``self.call_llm=True`` 后，process_stage 的
+           ``not event.call_llm`` 为 False，即不再走 LLM 链路。
+        2. ``event.stop_event()`` —— 终止事件传播，阻止后续 handler（其它插件抢答）。
+
+        两处均做防御性调用：本方法可能被测试里的假 event（无这两个方法）驱动，且要
+        兼容不同 AstrBot 版本，任何失败都静默降级、绝不影响主流程。
+        """
+        if not self.suppress_llm_followup:
+            return
+        for method, args in (("should_call_llm", (True,)), ("stop_event", ())):
+            try:
+                getattr(event, method)(*args)
+            except Exception:  # noqa: BLE001
+                # 假 event / 老版本 AstrBot 无此 API：静默忽略，不影响主流程
+                pass
+
+    # ------------------------------------------------------------------ #
     # 指令入口（仅指令触发；不监听消息、不自动搜图）
     # ------------------------------------------------------------------ #
     @filter.command("搜本", alias={"搜本子", "soutu", "找图"})
@@ -716,6 +748,7 @@ class SoutuSearchPlugin(Star):
 
         图片 / 引用图片 / 图片直链 → 走 soutubot；纯关键词 → 引导改用「搜图」。
         """
+        self._suppress_followup(event)
         if not self._is_access_allowed(event):
             # 指令受限：回一句简短提示，让用户知道不是插件坏了
             yield event.plain_result(ACCESS_DENIED_TEXT)
@@ -736,6 +769,7 @@ class SoutuSearchPlugin(Star):
     @filter.command("搜本帮助", alias={"搜本help", "soutuhelp"})
     async def book_help_cmd(self, event: AstrMessageEvent):
         """「搜本帮助」指令：输出以图搜本子用法说明。"""
+        self._suppress_followup(event)
         if not self._is_access_allowed(event):
             yield event.plain_result(ACCESS_DENIED_TEXT)
             return
@@ -749,6 +783,7 @@ class SoutuSearchPlugin(Star):
         - 否则文本为纯关键词 → Safebooru 关键词搜图；
         - 无图无参数 → 输出「搜图帮助」。
         """
+        self._suppress_followup(event)
         if not self._is_access_allowed(event):
             yield event.plain_result(ACCESS_DENIED_TEXT)
             return
@@ -768,6 +803,7 @@ class SoutuSearchPlugin(Star):
     @filter.command("搜图帮助", alias={"搜图help", "pixivhelp", "saucenaohelp"})
     async def sou_help_cmd(self, event: AstrMessageEvent):
         """「搜图帮助」指令：输出搜图用法说明（含以图反查 + 关键词两条路）。"""
+        self._suppress_followup(event)
         if not self._is_access_allowed(event):
             yield event.plain_result(ACCESS_DENIED_TEXT)
             return
